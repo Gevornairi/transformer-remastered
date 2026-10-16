@@ -17,8 +17,7 @@ class Transformer(Module):
 
     Compared with the 2017 paper: pre-norm blocks with RMSNorm, no biases,
     SwiGLU feed-forward, RoPE instead of sinusoidal position vectors, and
-    optional grouped-query attention (``n_kv_heads``). See
-    notes/modern-transformer.md.
+    optional grouped-query attention (``n_kv_heads``).
 
     With ``share_embeddings`` (requires a joint vocabulary) one table serves
     as source embedding, target embedding and output projection. Otherwise
@@ -182,8 +181,7 @@ class Transformer(Module):
         """Translate with beam search, ranking hypotheses by log P / ((5 + len) / 6)^alpha.
 
         The length penalty (Wu et al., 2016) stops the search from favouring
-        short outputs; ``beam=4, alpha=0.6`` are the paper's settings. See
-        notes/beam-search.md.
+        short outputs; ``beam=4, alpha=0.6`` are the paper's settings.
 
         Returns (batch, <=max_len) ids starting with BOS; positions after EOS
         are PAD. Runs in eval mode and restores the previous mode afterwards.

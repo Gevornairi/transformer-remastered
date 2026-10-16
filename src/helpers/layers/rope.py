@@ -1,4 +1,4 @@
-"""Rotary position embedding (see notes/rope.md)."""
+"""Rotary position embedding (Su et al., 2021)."""
 
 import numpy as np
 

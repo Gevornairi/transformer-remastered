@@ -1,4 +1,4 @@
-"""AdamW with global-norm gradient clipping (see notes/adamw-cosine.md)."""
+"""AdamW with global-norm gradient clipping."""
 
 from collections.abc import Callable
 

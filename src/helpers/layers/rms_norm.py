@@ -9,7 +9,6 @@ class RMSNorm(Module):
     """``y = gain * x / sqrt(mean(x^2) + eps)`` over the last axis.
 
     LayerNorm without the mean subtraction and the bias; ``gain`` starts at 1.
-    Derivation of the backward pass: notes/modernize-steps.md, step 2.
     """
 
     def __init__(self, d_model: int, eps: float = 1e-6) -> None:

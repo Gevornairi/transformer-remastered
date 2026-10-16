@@ -1,4 +1,4 @@
-"""Token embedding table (see notes/embeddings.md)."""
+"""Token embedding table."""
 
 import math
 

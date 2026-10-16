@@ -21,7 +21,7 @@ class MultiHeadAttention(Module):
     With ``n_kv_heads < n_heads`` it is grouped-query attention: only
     ``n_kv_heads`` key/value heads are projected, and each serves
     ``n_rep = n_heads // n_kv_heads`` query heads (``n_kv_heads = 1`` is
-    multi-query attention). See notes/gqa.md.
+    multi-query attention; Ainslie et al., 2023).
 
     If ``rope`` is given, queries and keys are rotated by position after the
     head split; pass it for self-attention only.
