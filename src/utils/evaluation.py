@@ -77,6 +77,24 @@ def translate_split(
     return [tokenizer.decode(t) for t in ids]
 
 
+def translate_texts(
+    model: Transformer,
+    tokenizer: Tokenizer,
+    sentences: list[str],
+    special_ids: SpecialIds,
+    beam: int = 1,
+    alpha: float = 0.6,
+) -> list[str]:
+    """Translate raw sentences; blank input lines give blank output lines."""
+    ids = [
+        # same truncation as training: room for EOS within the RoPE table
+        tokenizer.encode(s, add_special_tokens=False).ids[: model.max_len - 1]
+        for s in sentences
+    ]
+    out = translate_ids(model, ids, special_ids, beam=beam, alpha=alpha)
+    return [tokenizer.decode(t) if s.strip() else "" for s, t in zip(sentences, out)]
+
+
 def bleu(
     model: Transformer,
     tokenizer: Tokenizer,

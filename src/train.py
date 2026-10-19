@@ -26,7 +26,7 @@ from .helpers.optimisers.cosine_schedule import CosineSchedule
 from .helpers.optimisers.noam_schedule import NoamSchedule
 from .transformer import Transformer
 from .utils.batching import SpecialIds
-from .utils.checkpoint import load_checkpoint, save_checkpoint
+from .utils.checkpoint import load_checkpoint, load_model, save_checkpoint
 from .utils.evaluation import bleu, translate_split, validation_loss
 from .utils.parallel_split import ParallelSplit
 from .utils.prefetcher import Prefetcher
@@ -142,8 +142,9 @@ def main():
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     if args.eval_only:
-        load_checkpoint(ckpt_dir / "best.npz", model)
-        test = ParallelSplit(data / "test.npz", max_tokens)
+        # architecture from the checkpoint, so model flags need not be repeated
+        model = load_model(ckpt_dir / "best.npz", vocab_size)
+        test = ParallelSplit(data / "test.npz", model.max_len - 1)
         refs = (data / "test.tgt").read_text().splitlines()
         t0 = time.time()
         greedy = bleu(model, tokenizer, test, refs, special_ids, None)
