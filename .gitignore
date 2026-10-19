@@ -9,6 +9,9 @@ wheels/
 # Virtual environments
 .venv
 
+# Editor settings
+.vscode/
+
 # Data and training outputs
 data/
 checkpoints/
