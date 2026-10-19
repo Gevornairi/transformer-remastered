@@ -39,7 +39,13 @@ uv run python -m src.train_wmt --resume            # continue from last.npz
 
 # 3. Test-set BLEU on newstest2014 (greedy and beam) with best.npz
 uv run python -m src.train_wmt --eval-only
+
+# 4. Translate your own sentences with best.npz (beam 4; --beam 1 for greedy)
+uv run python -m src.translate "The weather is nice today."
+uv run python -m src.translate                     # interactive, Ctrl-D to quit
 ```
+
+`translate.py` rebuilds the model from the settings stored in the checkpoint, so it always matches the training run.
 
 `uv run python -m src.train_wmt --help` lists every option. Useful ones:
 `--kv-heads` (GQA), `--schedule noam`, `--steps`, `--batch-tokens` / `--accum` (tokens per update), `--max-len` (longest sequence; longer sentences are truncated).
@@ -75,6 +81,7 @@ src/
   encoder.py, decoder.py  embedding → stack of layers → final RMSNorm
   train_wmt.py            data loading, batching, training loop, BLEU evaluation, checkpoints
   prepare_wmt14.py        dataset download, BPE training, pre-tokenization
+  translate.py            translate sentences with a trained checkpoint
   helpers/
     base/                 backend (MLX/NumPy), Module and Param, masks, softmax
     layers/               Linear, Embedding, Dropout, RMSNorm, RoPE, SiLU, SwiGLU,

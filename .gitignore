@@ -12,4 +12,5 @@ wheels/
 # Data and training outputs
 data/
 checkpoints/
+*.log
 .DS_Store
