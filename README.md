@@ -97,14 +97,13 @@ src/
   utils/
     parallel_split.py     ParallelSplit: pre-tokenized sentence pairs stored flat with offsets
     batching.py           length-bucketed batches, padding (collate), stripping special tokens
-    prefetcher.py         background thread that builds the next batches
     evaluation.py         translation (shared by training and translate.py), validation loss, BLEU
-    checkpoint.py         save/load model + optimizer state
+    checkpoint.py         load_model: rebuild the Transformer from a checkpoint's stored settings
 tests/
   gradcheck.py            hand-written backward vs. finite differences / MLX autodiff
 ```
 
-Shared building blocks (`Module`, `Param`, `Linear`, `Embedding`, `Dropout`, `RMSNorm`, `RoPE`, `SiLU`, `SwiGLUFeedForward`, `MultiHeadAttention`, `EncoderLayer`, `DecoderLayer`, `LabelSmoothingLoss`, `AdamW`, schedules) live in [nnkit](https://github.com/Gevornairi/nnkit).
+Shared building blocks (`Module`, `Param`, `Linear`, `Embedding`, `Dropout`, `RMSNorm`, `RoPE`, `SiLU`, `SwiGLUFeedForward`, `MultiHeadAttention`, `EncoderLayer`, `DecoderLayer`, `LabelSmoothingLoss`, `AdamW`, schedules) and training utilities (the background batch `Prefetcher`, `save_checkpoint` / `load_checkpoint`) live in [nnkit](https://github.com/Gevornairi/nnkit).
 
 ### How a layer works
 

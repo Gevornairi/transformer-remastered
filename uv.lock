@@ -1965,8 +1965,8 @@ wheels = [
 
 [[package]]
 name = "nnkit"
-version = "0.1.0"
-source = { git = "https://github.com/Gevornairi/nnkit?tag=v0.1.0#69d27688b4ec578f3c7b4a675d84e170800bbb38" }
+version = "0.2.0"
+source = { git = "https://github.com/Gevornairi/nnkit?tag=v0.2.0#b77730ee3b82f4fc28661a6b44aff949fb62c1b6" }
 dependencies = [
     { name = "mlx" },
     { name = "numpy" },
@@ -3151,7 +3151,7 @@ requires-dist = [
     { name = "datasets", specifier = ">=5.1.0" },
     { name = "matplotlib", specifier = ">=3.11.2" },
     { name = "mlx", specifier = ">=0.32.4" },
-    { name = "nnkit", git = "https://github.com/Gevornairi/nnkit?tag=v0.1.0" },
+    { name = "nnkit", git = "https://github.com/Gevornairi/nnkit?tag=v0.2.0" },
     { name = "numpy", specifier = ">=2.5.3" },
     { name = "pandas", specifier = ">=3.0.6" },
     { name = "sacrebleu", specifier = ">=2.6.0" },

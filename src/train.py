@@ -20,14 +20,14 @@ from pathlib import Path
 from nnkit.base import asarray, materialize, seed
 from nnkit.losses import LabelSmoothingLoss
 from nnkit.optimisers import AdamW, CosineSchedule, NoamSchedule
+from nnkit.training import Prefetcher, load_checkpoint, save_checkpoint
 from tokenizers import Tokenizer
 
 from .transformer import Transformer
-from .utils.batching import SpecialIds
-from .utils.checkpoint import load_checkpoint, load_model, save_checkpoint
+from .utils.batching import SpecialIds, collate, token_batches
+from .utils.checkpoint import load_model
 from .utils.evaluation import bleu, translate_split, validation_loss
 from .utils.parallel_split import ParallelSplit
-from .utils.prefetcher import Prefetcher
 
 
 def main():
@@ -168,7 +168,8 @@ def main():
 
     step, best_bleu = 0, -1.0
     if args.resume and (ckpt_dir / "last.npz").exists():
-        step, best_bleu = load_checkpoint(ckpt_dir / "last.npz", model, opt)
+        resumed = load_checkpoint(ckpt_dir / "last.npz", model, opt)
+        step, best_bleu = int(resumed["step"]), float(resumed["best_bleu"])
         print(f"resumed at step {step} (best BLEU {best_bleu:.2f})")
 
     train = ParallelSplit(data / "train.npz", max_tokens)
@@ -176,7 +177,13 @@ def main():
         f"{model.n_params() / 1e6:.1f}M params | {len(train):,} train pairs | "
         f"~{args.batch_tokens * args.accum:,} padded tokens/update"
     )
-    batches = Prefetcher(train, args.batch_tokens, special_ids, args.seed + step)
+
+    def make_epoch(rng):
+        """One epoch of padded (src, tgt_in, tgt_out) batches, built on the prefetch thread."""
+        for idx in token_batches(train, args.batch_tokens, rng):
+            yield collate(train, idx, *special_ids)
+
+    batches = Prefetcher(make_epoch, seed=args.seed + step)
 
     # running totals since the last log line
     log_t0, log_tokens, log_loss_sum = time.time(), 0, 0.0
@@ -218,11 +225,14 @@ def main():
             )
             is_best = score > best_bleu
             best_bleu = max(best_bleu, score)
-            save_checkpoint(ckpt_dir / "last.npz", model, opt, step, best_bleu, args)
+            progress = {
+                "step": step,
+                "best_bleu": best_bleu,
+                "args": json.dumps(vars(args)),
+            }
+            save_checkpoint(ckpt_dir / "last.npz", model, opt, **progress)
             if is_best:
-                save_checkpoint(
-                    ckpt_dir / "best.npz", model, opt, step, best_bleu, args
-                )
+                save_checkpoint(ckpt_dir / "best.npz", model, opt, **progress)
             sample = translate_split(model, tokenizer, valid, [0], special_ids)[0]
             print(
                 f"== eval step {step}: valid loss {v_loss:.3f} | BLEU@{args.bleu_sents} {score:.2f}"
