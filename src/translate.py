@@ -2,7 +2,7 @@
 
   python -m src.translate "The weather is nice today."   # one or more sentences as arguments
   python -m src.translate                                # interactive: type a sentence, get a translation
-  python -m src.translate < input.txt                    # one sentence per line from stdin
+  python -m src.translate < input.txt > output.txt       # one sentence per line, translated in batches
 
 The model's architecture is read from the arguments stored in the
 checkpoint, so it always matches the run that produced it.
@@ -16,9 +16,10 @@ from pathlib import Path
 import numpy as np
 from tokenizers import Tokenizer
 
-from .helpers.base.backend import asarray, to_numpy
-from .train_wmt import load_checkpoint, strip_special
 from .transformer import Transformer
+from .utils.batching import SpecialIds
+from .utils.checkpoint import load_checkpoint
+from .utils.evaluation import translate_ids
 
 
 def load_model(ckpt: Path, vocab_size: int) -> Transformer:
@@ -42,27 +43,22 @@ def load_model(ckpt: Path, vocab_size: int) -> Transformer:
     return model
 
 
-def translate(
+def translate_texts(
     model: Transformer,
     tokenizer: Tokenizer,
-    sentence: str,
-    special_ids: tuple[int, int, int],
+    sentences: list[str],
+    special_ids: SpecialIds,
     beam: int,
     alpha: float,
-) -> str:
-    """Translate one sentence (greedy if beam == 1, else beam search)."""
-    pad, bos, eos = special_ids
-    ids = tokenizer.encode(sentence, add_special_tokens=False).ids
-    ids = ids[: model.max_len - 1] + [eos]  # same truncation as training
-    src = asarray([ids])
-    max_len = len(ids) + 50
-    if beam <= 1:
-        out = model.greedy_decode(src, bos, eos, max_len=max_len, pad_id=pad)
-    else:
-        out = model.beam_decode(
-            src, bos, eos, beam=beam, alpha=alpha, max_len=max_len, pad_id=pad
-        )
-    return tokenizer.decode(strip_special(to_numpy(out)[0], pad, bos, eos))
+) -> list[str]:
+    """Translate raw sentences; blank input lines give blank output lines."""
+    ids = [
+        # same truncation as training: room for EOS within the RoPE table
+        tokenizer.encode(s, add_special_tokens=False).ids[: model.max_len - 1]
+        for s in sentences
+    ]
+    out = translate_ids(model, ids, special_ids, beam=beam, alpha=alpha)
+    return [tokenizer.decode(t) if s.strip() else "" for s, t in zip(sentences, out)]
 
 
 def main():
@@ -76,21 +72,18 @@ def main():
 
     data = Path(args.data)
     meta = json.loads((data / "meta.json").read_text())
-    special_ids = (meta["pad_id"], meta["bos_id"], meta["eos_id"])
+    special_ids: SpecialIds = (meta["pad_id"], meta["bos_id"], meta["eos_id"])
     tokenizer = Tokenizer.from_file(str(data / "tokenizer.json"))
     model = load_model(Path(args.ckpt), meta["vocab_size"])
 
-    def run(sentence: str) -> None:
-        if sentence.strip():
-            print(
-                translate(
-                    model, tokenizer, sentence, special_ids, args.beam, args.alpha
-                )
-            )
+    def run(sentences: list[str]) -> None:
+        for line in translate_texts(
+            model, tokenizer, sentences, special_ids, args.beam, args.alpha
+        ):
+            print(line)
 
     if args.sentences:
-        for sentence in args.sentences:
-            run(sentence)
+        run(args.sentences)
     elif sys.stdin.isatty():
         print(f"{meta['src_lang']} -> {meta['tgt_lang']}, Ctrl-D to quit")
         while True:
@@ -99,10 +92,10 @@ def main():
             except EOFError:
                 print()
                 break
-            run(sentence)
+            if sentence.strip():
+                run([sentence])
     else:
-        for line in sys.stdin:
-            run(line)
+        run([line.rstrip("\n") for line in sys.stdin])
     return 0
 
 

@@ -34,11 +34,11 @@ uv sync
 uv run python -m src.prepare_wmt14 --n-train 1000000 --vocab-size 32000
 
 # 2. Train (Transformer-base defaults; checkpoints go to checkpoints/wmt14_en_de/)
-uv run python -m src.train_wmt
-uv run python -m src.train_wmt --resume            # continue from last.npz
+uv run python -m src.train
+uv run python -m src.train --resume            # continue from last.npz
 
 # 3. Test-set BLEU on newstest2014 (greedy and beam) with best.npz
-uv run python -m src.train_wmt --eval-only
+uv run python -m src.train --eval-only
 
 # 4. Translate your own sentences with best.npz (beam 4; --beam 1 for greedy)
 uv run python -m src.translate "The weather is nice today."
@@ -47,7 +47,7 @@ uv run python -m src.translate                     # interactive, Ctrl-D to quit
 
 `translate.py` rebuilds the model from the settings stored in the checkpoint, so it always matches the training run.
 
-`uv run python -m src.train_wmt --help` lists every option. Useful ones:
+`uv run python -m src.train --help` lists every option. Useful ones:
 `--kv-heads` (GQA), `--schedule noam`, `--steps`, `--batch-tokens` / `--accum` (tokens per update), `--max-len` (longest sequence; longer sentences are truncated).
 With the cosine schedule, pass the same `--steps` when resuming, since the schedule depends on it.
 
@@ -79,9 +79,15 @@ Chosen with environment variables before `src` is imported:
 src/
   transformer.py          Transformer: encoder + decoder + output projection, greedy/beam decoding
   encoder.py, decoder.py  embedding → stack of layers → final RMSNorm
-  train_wmt.py            data loading, batching, training loop, BLEU evaluation, checkpoints
+  train.py                training loop: arguments, model and optimizer setup, logging, periodic eval
   prepare_wmt14.py        dataset download, BPE training, pre-tokenization
   translate.py            translate sentences with a trained checkpoint
+  utils/
+    parallel_split.py     ParallelSplit: pre-tokenized sentence pairs stored flat with offsets
+    batching.py           length-bucketed batches, padding (collate), stripping special tokens
+    prefetcher.py         background thread that builds the next batches
+    evaluation.py         translation (shared by training and translate.py), validation loss, BLEU
+    checkpoint.py         save/load model + optimizer state
   helpers/
     base/                 backend (MLX/NumPy), Module and Param, masks, softmax
     layers/               Linear, Embedding, Dropout, RMSNorm, RoPE, SiLU, SwiGLU,

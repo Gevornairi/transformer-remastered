@@ -1,8 +1,8 @@
 """Train the from-scratch Transformer on the WMT14 subset built by prepare_wmt14.
 
-  python -m src.train_wmt                      # Transformer-base, paper hyper-parameters
-  python -m src.train_wmt --resume             # continue from checkpoints/.../last.npz
-  python -m src.train_wmt --eval-only --resume # BLEU on newstest2014 with the best checkpoint
+  python -m src.train               # Transformer-base, paper hyper-parameters
+  python -m src.train --resume      # continue from checkpoints/.../last.npz
+  python -m src.train --eval-only   # BLEU on newstest2014 with the best checkpoint
 
 The GPU does the math (MLX); a background thread builds and pads the next
 batches on the CPU at the same time.
@@ -14,251 +14,22 @@ Every --eval-every updates: validation loss and greedy BLEU on the first
 
 import argparse
 import json
-import queue
-import threading
 import time
 from pathlib import Path
 
-import numpy as np
-import sacrebleu
 from tokenizers import Tokenizer
 
-from .helpers.base.backend import asarray, materialize, seed, to_numpy
+from .helpers.base.backend import asarray, materialize, seed
 from .helpers.loss.label_smoothing_loss import LabelSmoothingLoss
 from .helpers.optimisers.adamw import AdamW
 from .helpers.optimisers.cosine_schedule import CosineSchedule
 from .helpers.optimisers.noam_schedule import NoamSchedule
 from .transformer import Transformer
-
-SpecialIds = tuple[int, int, int]  # (pad, bos, eos)
-
-
-class ParallelSplit:
-    """A pre-tokenized split of sentence pairs: ragged src/tgt id lists stored flat with offsets.
-
-    Pair i's source ids are ``src[src_off[i] : src_off[i + 1]]`` (same for the
-    target). With ``max_tokens``, each side is truncated to that many tokens
-    so that, after adding BOS/EOS, it still fits the model's RoPE table.
-    """
-
-    def __init__(self, path: Path, max_tokens: int | None = None) -> None:
-        z = np.load(path)
-        self.src, self.src_off = z["src"], z["src_off"]
-        self.tgt, self.tgt_off = z["tgt"], z["tgt_off"]
-        self.src_len = np.diff(self.src_off)
-        self.tgt_len = np.diff(self.tgt_off)
-        if max_tokens is not None:
-            self.src_len = np.minimum(self.src_len, max_tokens)
-            self.tgt_len = np.minimum(self.tgt_len, max_tokens)
-
-    def __len__(self) -> int:
-        return len(self.src_len)
-
-    def src_ids(self, i: int) -> np.ndarray:
-        return self.src[self.src_off[i] : self.src_off[i] + self.src_len[i]]
-
-    def tgt_ids(self, i: int) -> np.ndarray:
-        return self.tgt[self.tgt_off[i] : self.tgt_off[i] + self.tgt_len[i]]
-
-
-def collate(split: ParallelSplit, idx, pad: int, bos: int, eos: int):
-    """Build padded int32 arrays for pairs ``idx``.
-
-    src = x + EOS;  tgt_in = BOS + y;  tgt_out = y + EOS; right-padded with PAD.
-    Returns (src, tgt_in, tgt_out), shapes (n, S) and (n, T) twice.
-    """
-    n = len(idx)
-    s_max = int(split.src_len[idx].max()) + 1
-    t_max = int(split.tgt_len[idx].max()) + 1
-    src = np.full((n, s_max), pad, dtype=np.int32)
-    tgt_in = np.full((n, t_max), pad, dtype=np.int32)
-    tgt_out = np.full((n, t_max), pad, dtype=np.int32)
-    for row, i in enumerate(idx):
-        s, t = split.src_ids(i), split.tgt_ids(i)
-        src[row, : len(s)] = s
-        src[row, len(s)] = eos
-        tgt_in[row, 0] = bos
-        tgt_in[row, 1 : len(t) + 1] = t
-        tgt_out[row, : len(t)] = t
-        tgt_out[row, len(t)] = eos
-    return src, tgt_in, tgt_out
-
-
-def token_batches(
-    split: ParallelSplit, batch_tokens: int, rng: np.random.Generator, pool: int = 100
-) -> list[list[int]]:
-    """One epoch of length-bucketed batches whose padded size stays under batch_tokens.
-
-    Shuffle, sort within pools of ~pool batches so each batch has similar
-    lengths (little padding), then shuffle the batch order.
-    """
-    order = rng.permutation(len(split))
-    longest = np.maximum(split.src_len, split.tgt_len) + 1
-    approx_per_batch = max(1, batch_tokens // int(longest.mean()))
-    batches = []
-    for start in range(0, len(order), pool * approx_per_batch):
-        chunk = order[start : start + pool * approx_per_batch]
-        chunk = chunk[np.argsort(longest[chunk], kind="stable")]
-        cur, cur_max = [], 0
-        for i in chunk:
-            new_max = max(cur_max, longest[i])
-            if cur and new_max * (len(cur) + 1) > batch_tokens:
-                batches.append(cur)
-                cur, new_max = [], longest[i]
-            cur.append(i)
-            cur_max = new_max
-        if cur:
-            batches.append(cur)
-    rng.shuffle(batches)
-    return batches
-
-
-class Prefetcher:
-    """Builds padded numpy batches on a background thread, forever (epoch after epoch)."""
-
-    def __init__(
-        self,
-        split: ParallelSplit,
-        batch_tokens: int,
-        special_ids: SpecialIds,
-        seed_: int,
-        depth: int = 16,
-    ) -> None:
-        self.queue: queue.Queue = queue.Queue(maxsize=depth)
-        self.epoch = 0
-        args = (split, batch_tokens, special_ids, np.random.default_rng(seed_))
-        threading.Thread(target=self._run, args=args, daemon=True).start()
-
-    def _run(self, split, batch_tokens, special_ids, rng):
-        while True:
-            for idx in token_batches(split, batch_tokens, rng):
-                self.queue.put((self.epoch, collate(split, idx, *special_ids)))
-            self.epoch += 1
-
-    def next(self):
-        """Blocks until a batch is ready; returns (epoch, (src, tgt_in, tgt_out))."""
-        return self.queue.get()
-
-
-def strip_special(ids, pad: int, bos: int, eos: int) -> list[int]:
-    """Drop BOS and cut at the first EOS or PAD, leaving only content tokens."""
-    out = []
-    for t in ids:
-        t = int(t)
-        if t == eos or t == pad:
-            break
-        if t != bos:
-            out.append(t)
-    return out
-
-
-def translate(
-    model: Transformer,
-    tokenizer: Tokenizer,
-    split: ParallelSplit,
-    idx,
-    special_ids: SpecialIds,
-    batch_size: int = 64,
-    extra_len: int = 50,
-    beam: int = 1,
-    alpha: float = 0.6,
-) -> list[str]:
-    """Decode sentences idx of split (greedy, or beam search if beam > 1).
-
-    Each output may be up to ``extra_len`` tokens longer than its batch's
-    longest source. Returns detokenized strings in idx order.
-    """
-    pad, bos, eos = special_ids
-    idx = np.asarray(idx)
-    order = idx[np.argsort(split.src_len[idx], kind="stable")]  # less padding
-    hyps: dict[int, str] = {}
-    for b in range(0, len(order), batch_size):
-        chunk = order[b : b + batch_size]
-        src, _, _ = collate(split, chunk, pad, bos, eos)
-        out = to_numpy(
-            model.greedy_decode(
-                asarray(src), bos, eos, max_len=src.shape[1] + extra_len, pad_id=pad
-            )
-            if beam <= 1
-            else model.beam_decode(
-                asarray(src),
-                bos,
-                eos,
-                beam=beam,
-                alpha=alpha,
-                max_len=src.shape[1] + extra_len,
-                pad_id=pad,
-            )
-        )
-        for row, i in zip(out, chunk):
-            hyps[int(i)] = tokenizer.decode(strip_special(row, pad, bos, eos))
-    return [hyps[int(i)] for i in idx]
-
-
-def validation_loss(
-    model: Transformer,
-    loss_fn: LabelSmoothingLoss,
-    split: ParallelSplit,
-    special_ids: SpecialIds,
-    batch_tokens: int,
-) -> float:
-    """Label-smoothed loss per target token over the whole split, in eval mode."""
-    was_training = model.training
-    model.eval()
-    total, n_tokens = 0.0, 0
-    for idx in token_batches(split, batch_tokens, np.random.default_rng(0)):
-        src, tgt_in, tgt_out = collate(split, idx, *special_ids)
-        n = int((tgt_out != special_ids[0]).sum())
-        loss, _ = loss_fn(
-            model.forward(asarray(src), asarray(tgt_in)), asarray(tgt_out)
-        )
-        total += loss.item() * n
-        n_tokens += n
-    model.train(was_training)
-    return total / n_tokens
-
-
-def bleu(
-    model: Transformer,
-    tokenizer: Tokenizer,
-    split: ParallelSplit,
-    refs: list[str],
-    special_ids: SpecialIds,
-    n: int | None,
-    beam: int = 1,
-    alpha: float = 0.6,
-) -> float:
-    """Corpus BLEU (sacrebleu) on the first n sentences of split, or all if n is None."""
-    idx = np.arange(len(split) if n is None else min(n, len(split)))
-    hyps = translate(model, tokenizer, split, idx, special_ids, beam=beam, alpha=alpha)
-    return sacrebleu.corpus_bleu(hyps, [[refs[i] for i in idx]]).score
-
-
-def save_checkpoint(
-    path: Path, model: Transformer, opt: AdamW, step: int, best_bleu: float, args
-) -> None:
-    """Write model, optimizer state, progress and CLI args to path (atomically, via a temp file)."""
-    tmp = path.with_suffix(".tmp.npz")
-    np.savez(
-        tmp,
-        **model.state(),
-        **{f"opt_{k}": v for k, v in opt.state().items()},
-        step=step,
-        best_bleu=best_bleu,
-        args=json.dumps(vars(args)),
-    )
-    tmp.replace(path)
-
-
-def load_checkpoint(
-    path: Path, model: Transformer, opt: AdamW | None = None
-) -> tuple[int, float]:
-    """Restore model (and optimizer, if given) from path; returns (step, best_bleu)."""
-    z = np.load(path)
-    model.load_state({k: z[k] for k in z.files if k.startswith("p")})
-    if opt is not None:
-        opt.load_state({k[4:]: z[k] for k in z.files if k.startswith("opt_")})
-    return int(z["step"]), float(z["best_bleu"])
+from .utils.batching import SpecialIds
+from .utils.checkpoint import load_checkpoint, save_checkpoint
+from .utils.evaluation import bleu, translate_split, validation_loss
+from .utils.parallel_split import ParallelSplit
+from .utils.prefetcher import Prefetcher
 
 
 def main():
@@ -453,7 +224,7 @@ def main():
                 save_checkpoint(
                     ckpt_dir / "best.npz", model, opt, step, best_bleu, args
                 )
-            sample = translate(model, tokenizer, valid, [0], special_ids)[0]
+            sample = translate_split(model, tokenizer, valid, [0], special_ids)[0]
             print(
                 f"== eval step {step}: valid loss {v_loss:.3f} | BLEU@{args.bleu_sents} {score:.2f}"
                 f"{' (best)' if is_best else ''} | {time.time() - t0:.0f}s\n"
