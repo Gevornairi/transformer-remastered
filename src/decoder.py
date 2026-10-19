@@ -1,12 +1,7 @@
 """Transformer decoder: embedding, a stack of decoder layers, final RMSNorm."""
 
-from .helpers.base.backend import Array
-from .helpers.base.module import Module
-from .helpers.layers.decoder_layer import DecoderLayer
-from .helpers.layers.dropout import Dropout
-from .helpers.layers.embedding import Embedding
-from .helpers.layers.rms_norm import RMSNorm
-from .helpers.layers.rope import RoPE
+from nnkit.base import Array, Module
+from nnkit.layers import DecoderLayer, Dropout, Embedding, RMSNorm, RoPE
 
 
 class Decoder(Module):

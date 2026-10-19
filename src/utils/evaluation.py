@@ -4,10 +4,10 @@ from collections.abc import Sequence
 
 import numpy as np
 import sacrebleu
+from nnkit.base import asarray, to_numpy
+from nnkit.losses import LabelSmoothingLoss
 from tokenizers import Tokenizer
 
-from ..helpers.base.backend import asarray, to_numpy
-from ..helpers.loss.label_smoothing_loss import LabelSmoothingLoss
 from ..transformer import Transformer
 from .batching import SpecialIds, collate, strip_special, token_batches
 from .parallel_split import ParallelSplit

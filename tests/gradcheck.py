@@ -1,6 +1,6 @@
 """Check the hand-written backward pass against an independent gradient.
 
-TRANSFORMER_BACKEND=numpy TRANSFORMER_DTYPE=float64 python -m tests.gradcheck
+NNKIT_BACKEND=numpy NNKIT_DTYPE=float64 python -m tests.gradcheck
     central finite differences in float64 (exact to ~1e-6)
 python -m tests.gradcheck
     MLX autodiff (mx.grad) of the same forward pass, float32 on the GPU
@@ -11,9 +11,9 @@ Exits non-zero if any configuration fails.
 """
 
 import numpy as np
+from nnkit.base import BACKEND, asarray, seed, to_numpy, xp
+from nnkit.losses import LabelSmoothingLoss
 
-from src.helpers.base.backend import BACKEND, asarray, seed, to_numpy, xp
-from src.helpers.loss.label_smoothing_loss import LabelSmoothingLoss
 from src.transformer import Transformer
 
 PAD, BOS, VOCAB_SIZE = 0, 1, 7

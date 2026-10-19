@@ -17,6 +17,7 @@ The model starts from the 2017 architecture ("Attention Is All You Need") and re
 
 Kept from the paper: tied source/target/output embeddings with a joint BPE vocabulary, label smoothing 0.1, ~25k tokens per update, Transformer-base size (d = 512, 6 + 6 layers, 8 heads).
 
+The layers, losses and optimisers come from [nnkit](https://github.com/Gevornairi/nnkit), a separate from-scratch toolkit; this repo holds the Transformer model, the WMT14 data pipeline, training and evaluation.
 All math goes through one array module, so the same code runs on the Apple GPU (MLX) or the CPU (NumPy).
 
 ## Setup
@@ -26,6 +27,17 @@ Requires Python 3.13 and [uv](https://docs.astral.sh/uv/). MLX needs Apple silic
 ```sh
 uv sync
 ```
+
+This also installs nnkit at the version pinned in `pyproject.toml` (a git tag).
+
+To develop nnkit alongside this repo, clone it next to this one and temporarily point the dependency at your local copy:
+
+```toml
+# pyproject.toml, [tool.uv.sources]
+nnkit = { path = "../nnkit", editable = true }
+```
+
+Before committing here, tag a new nnkit release and switch back to `{ git = "https://github.com/Gevornairi/nnkit", tag = "vX.Y.Z" }`.
 
 ## Usage
 
@@ -55,7 +67,7 @@ With the cosine schedule, pass the same `--steps` when resuming, since the sched
 
 ```sh
 # exact: central finite differences in float64 on the CPU
-TRANSFORMER_BACKEND=numpy TRANSFORMER_DTYPE=float64 uv run python -m tests.gradcheck
+NNKIT_BACKEND=numpy NNKIT_DTYPE=float64 uv run python -m tests.gradcheck
 
 # MLX autodiff of the same forward pass, float32 on the GPU
 uv run python -m tests.gradcheck
@@ -66,12 +78,12 @@ It exits non-zero if any gradient is off.
 
 ## Backend
 
-Chosen with environment variables before `src` is imported:
+Chosen with environment variables, read by nnkit when it is first imported:
 
 | Variable | Values | Default |
 |---|---|---|
-| `TRANSFORMER_BACKEND` | `mlx`, `numpy` | `mlx` |
-| `TRANSFORMER_DTYPE` | `float32`, `float64` (NumPy only) | `float32` |
+| `NNKIT_BACKEND` | `mlx`, `numpy` | `mlx` |
+| `NNKIT_DTYPE` | `float32`, `float64` (NumPy only) | `float32` |
 
 ## Layout
 
@@ -88,15 +100,11 @@ src/
     prefetcher.py         background thread that builds the next batches
     evaluation.py         translation (shared by training and translate.py), validation loss, BLEU
     checkpoint.py         save/load model + optimizer state
-  helpers/
-    base/                 backend (MLX/NumPy), Module and Param, masks, softmax
-    layers/               Linear, Embedding, Dropout, RMSNorm, RoPE, SiLU, SwiGLU,
-                          MultiHeadAttention (with GQA), EncoderLayer, DecoderLayer
-    loss/                 label-smoothed cross-entropy
-    optimisers/           AdamW, cosine and Noam schedules
 tests/
   gradcheck.py            hand-written backward vs. finite differences / MLX autodiff
 ```
+
+Shared building blocks (`Module`, `Param`, `Linear`, `Embedding`, `Dropout`, `RMSNorm`, `RoPE`, `SiLU`, `SwiGLUFeedForward`, `MultiHeadAttention`, `EncoderLayer`, `DecoderLayer`, `LabelSmoothingLoss`, `AdamW`, schedules) live in [nnkit](https://github.com/Gevornairi/nnkit).
 
 ### How a layer works
 

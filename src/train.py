@@ -17,13 +17,11 @@ import json
 import time
 from pathlib import Path
 
+from nnkit.base import asarray, materialize, seed
+from nnkit.losses import LabelSmoothingLoss
+from nnkit.optimisers import AdamW, CosineSchedule, NoamSchedule
 from tokenizers import Tokenizer
 
-from .helpers.base.backend import asarray, materialize, seed
-from .helpers.loss.label_smoothing_loss import LabelSmoothingLoss
-from .helpers.optimisers.adamw import AdamW
-from .helpers.optimisers.cosine_schedule import CosineSchedule
-from .helpers.optimisers.noam_schedule import NoamSchedule
 from .transformer import Transformer
 from .utils.batching import SpecialIds
 from .utils.checkpoint import load_checkpoint, load_model, save_checkpoint

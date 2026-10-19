@@ -1964,6 +1964,15 @@ wheels = [
 ]
 
 [[package]]
+name = "nnkit"
+version = "0.1.0"
+source = { git = "https://github.com/Gevornairi/nnkit?tag=v0.1.0#69d27688b4ec578f3c7b4a675d84e170800bbb38" }
+dependencies = [
+    { name = "mlx" },
+    { name = "numpy" },
+]
+
+[[package]]
 name = "notebook"
 version = "7.6.3"
 source = { registry = "https://pypi.org/simple" }
@@ -3121,6 +3130,7 @@ dependencies = [
     { name = "datasets" },
     { name = "matplotlib" },
     { name = "mlx" },
+    { name = "nnkit" },
     { name = "numpy" },
     { name = "pandas" },
     { name = "sacrebleu" },
@@ -3141,6 +3151,7 @@ requires-dist = [
     { name = "datasets", specifier = ">=5.1.0" },
     { name = "matplotlib", specifier = ">=3.11.2" },
     { name = "mlx", specifier = ">=0.32.4" },
+    { name = "nnkit", git = "https://github.com/Gevornairi/nnkit?tag=v0.1.0" },
     { name = "numpy", specifier = ">=2.5.3" },
     { name = "pandas", specifier = ">=3.0.6" },
     { name = "sacrebleu", specifier = ">=2.6.0" },

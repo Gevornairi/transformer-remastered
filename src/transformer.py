@@ -1,13 +1,11 @@
 """Encoder-decoder Transformer for translation, with greedy and beam-search decoding."""
 
+from nnkit.activations import log_softmax
+from nnkit.base import INT, Array, Module, decoder_mask, materialize, padding_mask, xp
+from nnkit.layers import Embedding, Linear
+
 from .decoder import Decoder
 from .encoder import Encoder
-from .helpers.base.backend import INT, Array, materialize, xp
-from .helpers.base.masking import decoder_mask, padding_mask
-from .helpers.base.module import Module
-from .helpers.base.softmax import log_softmax
-from .helpers.layers.embedding import Embedding
-from .helpers.layers.linear import Linear
 
 PAD_ID = 0
 

@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 
 import numpy as np
+from nnkit.optimisers import AdamW
 
-from ..helpers.optimisers.adamw import AdamW
 from ..transformer import Transformer
 
 
