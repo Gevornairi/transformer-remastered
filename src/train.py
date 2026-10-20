@@ -53,6 +53,12 @@ def main():
     parser.add_argument("--d-ff", type=int, default=1344)
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--max-len", type=int, default=256, help="RoPE table size")
+    parser.add_argument(
+        "--logit-cap",
+        type=float,
+        default=0.0,
+        help="soft-cap output logits at +-cap (Gemma 2 uses 30); 0 disables",
+    )
     # optimisation
     parser.add_argument(
         "--steps",
@@ -123,6 +129,7 @@ def main():
         dropout=args.dropout,
         max_len=args.max_len,
         share_embeddings=True,
+        logit_cap=args.logit_cap,
     )
     loss_fn = LabelSmoothingLoss(vocab_size, pad, args.smoothing)
     if args.schedule == "cosine":
@@ -169,6 +176,13 @@ def main():
     step, best_bleu = 0, -1.0
     if args.resume and (ckpt_dir / "last.npz").exists():
         resumed = load_checkpoint(ckpt_dir / "last.npz", model, opt)
+        # the cap has no parameters, so load_checkpoint can't catch a mismatch
+        saved_cap = json.loads(resumed["args"]).get("logit_cap", 0.0)
+        if saved_cap != args.logit_cap:
+            raise SystemExit(
+                f"last.npz was trained with --logit-cap {saved_cap}; "
+                f"resume with the same value (got {args.logit_cap})"
+            )
         step, best_bleu = int(resumed["step"]), float(resumed["best_bleu"])
         print(f"resumed at step {step} (best BLEU {best_bleu:.2f})")
 

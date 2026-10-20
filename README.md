@@ -63,6 +63,8 @@ uv run python -m src.translate                     # interactive, Ctrl-D to quit
 `--kv-heads` (GQA), `--schedule noam`, `--steps`, `--batch-tokens` / `--accum` (tokens per update), `--max-len` (longest sequence; longer sentences are truncated).
 With the cosine schedule, pass the same `--steps` when resuming, since the schedule depends on it.
 
+`--logit-cap 30` soft-caps the output logits, `30 * tanh(logits / 30)` (Gemma 2); off by default, since label smoothing already keeps the logits from growing. It is an experiment, not part of the default recipe: train with and without it and compare BLEU. The value is saved in the checkpoint, and `--resume` refuses a different one.
+
 ## Gradient check
 
 ```sh

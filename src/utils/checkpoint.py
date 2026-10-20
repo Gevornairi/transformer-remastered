@@ -26,6 +26,8 @@ def load_model(path: Path, vocab_size: int) -> Transformer:
         dropout=0.0,
         max_len=train_args["max_len"],
         share_embeddings=True,
+        # checkpoints from before --logit-cap existed were trained without it
+        logit_cap=train_args.get("logit_cap", 0.0),
     )
     load_checkpoint(path, model)
     model.eval()

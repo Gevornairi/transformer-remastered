@@ -1,6 +1,6 @@
 """Encoder-decoder Transformer for translation, with greedy and beam-search decoding."""
 
-from nnkit.activations import log_softmax
+from nnkit.activations import log_softmax, softcap, softcap_backward
 from nnkit.base import INT, Array, Module, decoder_mask, materialize, padding_mask, xp
 from nnkit.layers import Embedding, Linear
 
@@ -21,6 +21,9 @@ class Transformer(Module):
     as source embedding, target embedding and output projection. Otherwise
     the target gets its own embedding and the output its own ``Linear``.
 
+    With ``logit_cap > 0`` the logits are soft-capped, ``cap * tanh(logits / cap)``
+    (Gemma 2), in ``project``, so training and both decoders see the same logits.
+
     Training: ``logits = forward(src, tgt_in)``, get ``d_logits`` from the
     loss, then ``backward(d_logits)`` fills every ``Param.grad``.
     """
@@ -37,17 +40,22 @@ class Transformer(Module):
         max_len: int = 5000,
         share_embeddings: bool = True,
         n_kv_heads: int | None = None,
+        logit_cap: float = 0.0,
     ) -> None:
         """
         Args:
             d_ff: SwiGLU hidden size; 1344 ~ 8/3 * 512 matches the paper's FFN parameter count.
             max_len: longest sequence the RoPE tables cover.
             n_kv_heads: key/value heads for grouped-query attention; None means n_heads.
+            logit_cap: soft-cap on the output logits; 0 disables it.
         """
         super().__init__()
+        if logit_cap < 0:
+            raise ValueError(f"logit_cap={logit_cap} must be >= 0 (0 disables it)")
         self.d_model = d_model
         self.max_len = max_len
         self.share_embeddings = share_embeddings
+        self.logit_cap = logit_cap
         self.encoder = Encoder(
             src_vocab_size,
             d_model,
@@ -77,21 +85,34 @@ class Transformer(Module):
             self.out_proj = Linear(d_model, tgt_vocab_size)
             self.register_modules(self.out_proj)
         self._out_proj_input: Array | None = None
+        self._capped_logits: Array | None = None
 
     def project(self, x: Array) -> Array:
         """Decoder states (..., d_model) -> logits (..., tgt_vocab).
 
         With shared embeddings this is ``x @ E^T``, where E is the embedding
         table (without the sqrt(d_model) scale the embedding lookup applies).
+        With ``logit_cap`` the result is then soft-capped.
         """
         if self.out_proj is not None:
-            return self.out_proj.forward(x)
-        self._out_proj_input = x
+            logits = self.out_proj.forward(x)
+        else:
+            self._out_proj_input = x
+            logits = x @ self._tied_weight.value.T
 
-        return x @ self._tied_weight.value.T
+        if self.logit_cap:
+            logits = softcap(logits, self.logit_cap)
+            self._capped_logits = logits
+
+        return logits
 
     def project_backward(self, d_logits: Array) -> Array:
         """Backward of ``project``: adds into the (possibly tied) weight's grad, returns dx."""
+        if self.logit_cap:
+            if self._capped_logits is None:
+                raise RuntimeError("project_backward() called before project()")
+            d_logits = softcap_backward(self._capped_logits, d_logits, self.logit_cap)
+
         if self.out_proj is not None:
             return self.out_proj.backward(d_logits)
 
